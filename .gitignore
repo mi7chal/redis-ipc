@@ -1,0 +1,17 @@
+# Rust specific
+/target
+/debug
+**/*.rs.bk
+*.pdb
+Cargo.lock 
+
+# IDEs
+.idea
+.vscode
+.vim
+
+# misc
+.DS_Store
+*.db
+.env
+/local
