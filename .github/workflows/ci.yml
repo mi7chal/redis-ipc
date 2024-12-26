@@ -3,7 +3,7 @@ name: Cargo Build & Test
 on: [push]
 env: 
   CARGO_TERM_COLOR: always
-  REDIS_URL: redis://:eYVX7EwVmmxKPCDmwMtyKVge8oLd2t81@127.0.0.1/
+  REDIS_URL: redis://redis/
 
 jobs:
   build_and_test:
@@ -14,8 +14,6 @@ jobs:
         image: redis:7
         ports:
           - 9000:9000
-        env:
-          REDIS_ARGS: "--save 20 1 --loglevel warning --requirepass eYVX7EwVmmxKPCDmwMtyKVge8oLd2t81"
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
