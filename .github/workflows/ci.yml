@@ -1,0 +1,34 @@
+name: Cargo Build & Test
+
+on: [push]
+env: 
+  CARGO_TERM_COLOR: always
+  REDIS_URL: redis://:eYVX7EwVmmxKPCDmwMtyKVge8oLd2t81@127.0.0.1/
+
+jobs:
+  build_and_test:
+    name: Rust project - latest
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --requirepass eYVX7EwVmmxKPCDmwMtyKVge8oLd2t81
+    strategy:
+      matrix:
+        toolchain:
+          - stable
+          # - beta
+          # - nightly
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
+      - run: cargo build --verbose
+      - run: cargo test --verbose
+  
