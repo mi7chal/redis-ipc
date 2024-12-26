@@ -15,7 +15,7 @@ jobs:
         ports:
           - 9000:9000
         env:
-          - REDIS_ARGS: "--save 20 1 --loglevel warning --requirepass eYVX7EwVmmxKPCDmwMtyKVge8oLd2t81"
+          REDIS_ARGS: "--save 20 1 --loglevel warning --requirepass eYVX7EwVmmxKPCDmwMtyKVge8oLd2t81"
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
