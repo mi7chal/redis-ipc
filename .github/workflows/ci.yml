@@ -1,6 +1,6 @@
 name: Cargo Build & Test
 
-on: [push]
+on: [pull_request]
 env: 
   CARGO_TERM_COLOR: always
   REDIS_URL: redis://127.0.0.1/
