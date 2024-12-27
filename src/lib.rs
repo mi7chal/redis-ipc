@@ -1,4 +1,5 @@
 pub mod queue;
+pub mod helpers;
 
 use r2d2::{Pool, PooledConnection};
 use redis::Client;
