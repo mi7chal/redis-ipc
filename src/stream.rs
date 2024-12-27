@@ -8,16 +8,25 @@ impl ReadStream {
 
 }
 
-pub struct WriteStream {
+pub struct WriteStream<'a> {
 	pool: RedisPool,
+	name: &'a str
 }
 
 impl WriteStream {
-	fn new(pool: RedisPool, name: String) -> Self {
+	pub fn new(pool: RedisPool, name: &'a str) -> Self {
 		Self {
 			name,
 			pool
 		}
+	}
+
+	pub fn publish(&self) -> StreamResult {
+
+	}
+
+	pub fn publish_err(&self) -> StreamResult {
+		
 	}
 }
 

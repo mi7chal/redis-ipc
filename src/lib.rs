@@ -1,4 +1,5 @@
 pub mod queue;
+pub mod cache;
 pub mod helpers;
 
 use r2d2::{Pool, PooledConnection};
@@ -16,6 +17,8 @@ use std::num::NonZeroU32;
 // - cache, ttl, waitFor with timeout
 // - event stream 
 
+
 pub type RedisPool = Pool<Client>;
 pub type RedisConnection = PooledConnection<Client>;
 pub type Timeout = Option<NonZeroU32>;
+pub type Ttl = Option<NonZeroU32>;
