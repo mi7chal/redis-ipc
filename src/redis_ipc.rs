@@ -3,9 +3,9 @@ use r2d2::{Pool, PooledConnection, Error as R2D2Error};
 use std::error::Error;
 use serde::{Deserialize, Serialize};
 use std::io::{Error as IOError, ErrorKind};
-use std::num::NonZeroUsize;
+use std::num::{NonZeroU32, NonZeroUsize};
 use uuid::Uuid;
-use mod::{RedisPool, RedisConnection};
+use crate::{RedisPool, RedisConnection};
 
 // todo add uuid checking (parsing), we don't want a mess with ids
 
@@ -116,15 +116,15 @@ impl RedisDuplex {
     }
 }
 
-impl Iterator for RedisDuplex {
+impl<MessageContent> Iterator for RedisDuplex {
     type Item = DuplexMessage<MessageContent>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.b_next(None)
+        self.b_next(None).ok()
     }
 }
 
-fn build_response_message(content: MessageContent, status: MessageStatus, uuid: String) -> DuplexMessage<MessageContent> {
+fn build_response_message<MessageContent: Serialize>(content: MessageContent, status: MessageStatus, uuid: String) -> DuplexMessage<MessageContent> {
      DuplexMessage {
         uuid, 
         content,
@@ -141,11 +141,32 @@ fn parse_message<MessageContent: Deserialize>(message: String) -> Result<DuplexM
 
 
 
-pub struct RedisIpc {
-    duplex: RedisDuplex;
+pub struct RedisIpcPool {
+    duplex: RedisDuplex,
+    timeout: Option<NonZeroU32>,
 }
 
 
-impl RedisIpc {
-    
+impl RedisIpcPool {
+    pub fn build(pool: RedisPool, timeout: Option<NonZeroU32>) -> Self {
+        Self {
+            pool: duplex,
+            timeout
+        }
+    }
+
+    pub fn get_connection(&self) -> Result<RedisIpcChannelConnection, dyn Error> {}
+
+}
+
+impl Clone for RedisIpcPool {
+    fn clone(&self) -> Self {
+        todo!()
+    }
+}
+
+struct RedisIpcChannelConnection;
+
+impl RedisIpcChannelConnection {
+
 }
