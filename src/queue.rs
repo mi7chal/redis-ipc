@@ -1,13 +1,13 @@
-use std::num::{NonZeroUsize};
 use crate::{RedisPool, Timeout};
-use serde::{Serialize, Deserialize};
-use serde_json::{Error as SerdeJsonError};
+use redis::Commands;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+use serde_json::Error as SerdeJsonError;
 use std::error::Error;
-use redis::{Commands};
 use std::io::{Error as IOError, ErrorKind as IOErrorKind};
-use uuid::Uuid;
 use std::marker::PhantomData;
+use std::num::NonZeroUsize;
+use uuid::Uuid;
 
 /// Wrapper struct for messages in [`WriteQueue`](crate::queue::WriteQueue).
 #[derive(Serialize)]
@@ -19,11 +19,8 @@ pub struct WriteQueueMessage<MessageContent: Serialize> {
 }
 
 impl<MessageContent: Serialize> WriteQueueMessage<MessageContent> {
-    pub fn new(uuid: String, content: MessageContent) -> WriteQueueMessage<MessageContent>{
-        Self {
-            uuid,
-            content,
-        }
+    pub fn new(uuid: String, content: MessageContent) -> WriteQueueMessage<MessageContent> {
+        Self { uuid, content }
     }
 
     pub fn get_uuid(&self) -> &str {
@@ -43,13 +40,14 @@ pub struct ReadQueueMessage<MessageContent> {
 }
 
 impl<MessageContent: DeserializeOwned> ReadQueueMessage<MessageContent> {
-
-    /// Deserializes string and builds message from it. 
+    /// Deserializes string and builds message from it.
     ///
-    /// # Errors 
+    /// # Errors
     /// Returns [`Error`](serde_json::Error) produced by [`serde_json::from_str()](serde_json::from_str)
     pub fn from_str(message: String) -> Result<ReadQueueMessage<MessageContent>, SerdeJsonError> {
-        Ok(serde_json::from_str::<ReadQueueMessage<MessageContent>>(&message)?)
+        Ok(serde_json::from_str::<ReadQueueMessage<MessageContent>>(
+            &message,
+        )?)
     }
 
     pub fn get_uuid(&self) -> &str {
@@ -60,8 +58,6 @@ impl<MessageContent: DeserializeOwned> ReadQueueMessage<MessageContent> {
         &self.content
     }
 }
-
-
 
 /// Queue dedicated for writing tasks only.
 ///
@@ -77,12 +73,12 @@ pub struct WriteQueue<'a, MessageContent: Serialize> {
 
 impl<'a, MessageContent: Serialize> WriteQueue<'a, MessageContent> {
     /// Builds [`ReadQueue`](ReadQueue) with given name
-    /// 
-    /// # Arguments 
-    /// 
+    ///
+    /// # Arguments
+    ///
     /// * pool - configured [`Pool`](r2d2::Pool) with redis [`Client`](redis::Client)
     /// * name - queue name, will be used as redis list name
-    pub fn new(pool: RedisPool, name: &'a str,) -> Self {
+    pub fn new(pool: RedisPool, name: &'a str) -> Self {
         Self {
             name,
             pool,
@@ -93,9 +89,9 @@ impl<'a, MessageContent: Serialize> WriteQueue<'a, MessageContent> {
     /// Publishes task to the queue. Uses queue name, which may be accessed using `WriteQueue::get_name(&self)`
     ///
     /// # Errors
-    /// 
+    ///
     /// Returns [`r2d2::Error`](r2d2::Error) when getting connection fails. See [`Pool::get()`](r2d2::Pool::get)
-    /// 
+    ///
     /// Returns [`RedisError`](redis::RedisError) when pushing to queue fails.
     ///
     /// Returns [`serde_json::Error`](serde_json::Error) when stringifying json fails. See [`serde_json::to_string()`](serde_json::to_string)
@@ -117,18 +113,18 @@ impl<'a, MessageContent: Serialize> WriteQueue<'a, MessageContent> {
     }
 }
 
-/// Read only queue. 
+/// Read only queue.
 
 /// # Timeout
 /// This queue has timeout, which is used only in blocking operations. After this timeout,
 /// operation returns error.
-/// 
+///
 /// For writing use `WriteQueue`
 pub struct ReadQueue<'a, MessageContent: DeserializeOwned> {
     /// configured [`Pool`](r2d2::Pool) with redis [`Client`](redis::Client)
-	pool: RedisPool,
+    pool: RedisPool,
     /// blocking rquests timeout
-	timeout: u32,
+    timeout: u32,
     /// queue name
     name: &'a str,
     /// phantom indicating message type of queue instance
@@ -136,23 +132,22 @@ pub struct ReadQueue<'a, MessageContent: DeserializeOwned> {
 }
 
 impl<'a, MessageContent: DeserializeOwned> ReadQueue<'a, MessageContent> {
-
     /// Builds a queue with given timeout and name.
-    /// 
-    /// # Arguments 
-    /// 
+    ///
+    /// # Arguments
+    ///
     /// * pool - configured r2d2 pool with redis connection
     /// * name - queue name, will be used as redis list name
     /// * timeout - blocking requests timeout in milliseconds or None for infinite timeout
-	pub fn new(pool: RedisPool, name: &'a str, timeout: Timeout) -> Self {
-		// maps None as 0, because redis uses 0 as infinite timeout
-		let timeout: u32 = timeout.map_or(0, |t| t.get());
+    pub fn new(pool: RedisPool, name: &'a str, timeout: Timeout) -> Self {
+        // maps None as 0, because redis uses 0 as infinite timeout
+        let timeout: u32 = timeout.map_or(0, |t| t.get());
 
         Self {
             name,
             pool,
             timeout,
-            phantom: PhantomData
+            phantom: PhantomData,
         }
     }
 
@@ -160,7 +155,7 @@ impl<'a, MessageContent: DeserializeOwned> ReadQueue<'a, MessageContent> {
     ///
     /// # Errors
     /// Returns [`r2d2::Error`](r2d2::Error) when getting connection fails. See [`Pool::get()`](r2d2::Pool::get)
-    /// 
+    ///
     /// Returns [`RedisError`](redis::RedisError) when reading fails or there is no object available.
     ///
     /// Returns [`serde_json::Error`](serde_json::Error) produced by [`serde_json::from_str()](serde_json::from_str)
@@ -177,11 +172,11 @@ impl<'a, MessageContent: DeserializeOwned> ReadQueue<'a, MessageContent> {
     /// When timeout exceeds, error is returned.
     ///
     /// # Errors
-    /// 
+    ///
     /// Returns [`r2d2::Error`](r2d2::Error) when getting connection fails. See [`Pool::get()`](r2d2::Pool::get)
-    /// 
+    ///
     /// Returns [`RedisError`](redis::RedisError) when reading fails or timeout exceeds
-    /// 
+    ///
     /// Returns [`Error`](std::io::Error) when redis returns invalid data. It is not possible (theoretically).
     ///
     /// Returns [`serde_json::Error`](serde_json::Error) produced by [`serde_json::from_str()](serde_json::from_str)
@@ -190,12 +185,13 @@ impl<'a, MessageContent: DeserializeOwned> ReadQueue<'a, MessageContent> {
         let mut conn = self.pool.get()?;
 
         let timeout = ms_to_float_s(self.timeout);
-         // return type of redis blocking pop is ["queue_name", "queue_elem"], 0.0 timeout is infinite
+        // return type of redis blocking pop is ["queue_name", "queue_elem"], 0.0 timeout is infinite
         let res = conn.brpop::<&str, Vec<String>>(self.name, timeout)?;
 
-        let msg = res.get(1)
-            .cloned()
-            .ok_or(IOError::new(IOErrorKind::InvalidData, "Invalid redis message."))?;
+        let msg = res.get(1).cloned().ok_or(IOError::new(
+            IOErrorKind::InvalidData,
+            "Invalid redis message.",
+        ))?;
 
         Ok(ReadQueueMessage::from_str(msg)?)
     }
@@ -205,16 +201,16 @@ impl<'a, MessageContent: DeserializeOwned> Iterator for ReadQueue<'a, MessageCon
     type Item = ReadQueueMessage<MessageContent>;
 
     /// Returns first message which can be read.
-    /// 
+    ///
     /// # Warning
-    /// This method loops infinitely and will never return None. 
+    /// This method loops infinitely and will never return None.
     fn next(&mut self) -> Option<Self::Item> {
-    	loop {
-    		let res = self.b_next();
-    		if res.is_ok() {
-    			return res.ok();
-    		}
-    	}
+        loop {
+            let res = self.b_next();
+            if res.is_ok() {
+                return res.ok();
+            }
+        }
     }
 }
 
@@ -222,7 +218,6 @@ impl<'a, MessageContent: DeserializeOwned> Iterator for ReadQueue<'a, MessageCon
 fn ms_to_float_s(ms: u32) -> f64 {
     (ms as f64) / 1000.0
 }
-
 
 #[cfg(test)]
 mod tests {

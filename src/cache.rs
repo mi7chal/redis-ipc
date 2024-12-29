@@ -1,103 +1,117 @@
-use crate::{RedisPool, Ttl, Timeout};
-use std::fmt;
-use std::error::Error;
-use serde::{Serialize, Deserialize};
+use crate::{RedisPool, Timeout, Ttl};
+use redis::{Commands, ExpireOption};
 use serde::de::DeserializeOwned;
-use std::sync::Once;
-use std::marker::PhantomData;
-use redis::Commands;
+use serde::Serialize;
+use std::error::Error;
 use std::io;
+use std::marker::PhantomData;
+use std::sync::Arc;
 use std::thread;
 use std::time;
-use std::sync::Arc;
 
-/// Shared cache based on redis hash map. 
-/// 
+/// Shared cache based on redis hash map.
+///
 pub struct Cache<CacheElement: Serialize + DeserializeOwned> {
-	/// Configured [`Pool`](r2d2::Pool) with [`Client`](redis::Client)
-	pool: RedisPool,
-	/// Cache name
-	name: Arc<String>,
-	/// Time to live for elemens in cache. It is shared for every element.
-	ttl: Ttl, 
-	phantom: PhantomData<CacheElement>,
+    /// Configured [`Pool`](r2d2::Pool) with [`Client`](redis::Client)
+    pool: RedisPool,
+    /// Cache name
+    name: Arc<String>,
+    /// Time to live for elemens in cache. It is shared for every element.
+    ttl: Ttl,
+    phantom: PhantomData<CacheElement>,
+    read_timeout: u32,
 }
 
 impl<CacheElement: Serialize + DeserializeOwned> Clone for Cache<CacheElement> {
-	fn clone(&self) -> Cache<CacheElement> {
+    fn clone(&self) -> Cache<CacheElement> {
         Self {
-        	pool: self.pool.clone(),
-        	name: Arc::clone(&self.name),
-        	ttl: self.ttl,
-        	phantom: self.phantom,
+            pool: self.pool.clone(),
+            name: Arc::clone(&self.name),
+            ttl: self.ttl,
+            read_timeout: self.read_timeout,
+            phantom: self.phantom,
         }
     }
 }
 
-impl<CacheElement: Serialize + DeserializeOwned> Cache <CacheElement> {
-	/// Creates new cache, using existing pool.
-	/// 
-	/// # Arguments
-	/// 
-	/// * pool - confiugred [`Pool`](r2d2::Pool) with [`Client`](redis::Client)
-	/// * name - cache name, will be used as redis hash name
-	/// * ttl - time to live for every new cache element
-	pub fn new(pool: RedisPool, name: String, ttl: Ttl) -> Self {
-		Self {
-			pool,
-			name: Arc::new(name),
-			ttl,
-			phantom: PhantomData
-		}
-	}
+impl<CacheElement: Serialize + DeserializeOwned> Cache<CacheElement> {
+    /// Creates new cache, using existing pool.
+    ///
+    /// # Arguments
+    ///
+    /// * pool - confiugred [`Pool`](r2d2::Pool) with [`Client`](redis::Client)
+    /// * name - cache name, will be used as redis hash name
+    /// * ttl - time to live for every new cache element
+    pub fn new(pool: RedisPool, name: String, ttl: Ttl, read_timeout: Timeout) -> Self {
+        // maps None as 0, because redis uses 0 as infinite timeout
+        let read_timeout: u32 = read_timeout.map_or(0, |t| t.get());
 
-	/// Returns a cache elemnent or error if not exists
-	pub fn get(&self, field: &str) -> Result<CacheElement, Box<dyn Error>> {
-		let mut conn = self.pool.get()?;
+        Self {
+            pool,
+            name: Arc::new(name),
+            ttl,
+            read_timeout,
+            phantom: PhantomData,
+        }
+    }
 
-		let element = conn.hget::<&str, &str, String>(&self.name, field)?;
+    /// Returns a cache elemnent or error if not exists
+    pub fn get(&self, field: &str) -> Result<CacheElement, Box<dyn Error>> {
+        let mut conn = self.pool.get()?;
 
-		Ok(serde_json::from_str::<CacheElement>(&element)?)
-	}
+        let element = conn.hget::<&str, &str, String>(&self.name, field)?;
 
-	/// Blockingly returns a cache element with given name, or error if timeouts.
-	pub fn b_get(&self, field: &str, timeout: Timeout) -> Result<CacheElement, Box<dyn Error>> {
-		let timeout = time::Duration::from_millis(timeout.map_or(0, |t| t.get()) as u64);
-		let start_time = time::Instant::now();
-		let sleep_duration = time::Duration::from_millis(50);
+        Ok(serde_json::from_str::<CacheElement>(&element)?)
+    }
 
-		loop {
-			let elem = self.get(field);	
-			
-			if let Ok(elem) = elem {
-				return Ok(elem);
-			}
+    /// Returns (blocking) a cache element with given name, or error if timeouts.
+    pub fn b_get(&self, field: &str) -> Result<CacheElement, Box<dyn Error>> {
+        let timeout = time::Duration::from_millis(self.read_timeout as u64);
+        let start_time = time::Instant::now();
+        let sleep_duration = time::Duration::from_millis(50);
 
-			if !timeout.is_zero() && start_time.elapsed() >= timeout {
-				return Err(Box::new(io::Error::new(io::ErrorKind::TimedOut, "Timeout")));
-			}
+        loop {
+            let elem = self.get(field);
 
-			thread::sleep(sleep_duration);
-		}
-	}
+            if let Ok(elem) = elem {
+                return Ok(elem);
+            }
 
-	/// Sets given cache field to the element or returns error on failure.
-	pub fn set(&self, field: &str, value: &CacheElement) -> Result<(), Box<dyn Error>> {
-		let mut conn = self.pool.get()?;
+            if !timeout.is_zero() && start_time.elapsed() >= timeout {
+                return Err(Box::new(io::Error::new(io::ErrorKind::TimedOut, "Timeout")));
+            }
 
-		let json = serde_json::to_string(&value)?;
+            thread::sleep(sleep_duration);
+        }
+    }
 
-		let _ = conn.hset::<&str, &str, &str, ()>(&self.name, field, &json)?;
+    /// Sets given cache field to the element or returns error on failure.
+    pub fn set(&self, field: &str, value: &CacheElement) -> Result<(), Box<dyn Error>> {
+        // todo set ttl
+        let mut conn = self.pool.get()?;
 
-		Ok(())
-	}
+        let json = serde_json::to_string(&value)?;
 
-	/// Checks if cache element with given name exists. Returns error on failure.
-	pub fn exists(&self, field: &str) -> Result<bool, Box<dyn Error>> {
-		let mut conn = self.pool.get()?;
+        let _ = conn.hset::<&str, &str, &str, ()>(&self.name, field, &json)?;
 
-		let result = conn.hexists::<&str, &str, u8>(&self.name, field)?;
+        if let Some(ttl) = self.ttl {
+            let _ = conn.hexpire::<&str, &str, Vec<i8>>(
+                &self.name,
+                ttl.get() as i64,
+                ExpireOption::NONE,
+                field,
+            )?;
+        }
 
-		Ok(result != 0)
-	}
+        Ok(())
+    }
+
+    /// Checks if cache element with given name exists. Returns error on failure.
+    pub fn exists(&self, field: &str) -> Result<bool, Box<dyn Error>> {
+        let mut conn = self.pool.get()?;
+
+        let result = conn.hexists::<&str, &str, u8>(&self.name, field)?;
+
+        Ok(result != 0)
+    }
 }

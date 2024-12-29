@@ -2,6 +2,7 @@ use redis_ipc::{RedisPool, helpers};
 use rand::{distributions::Alphanumeric, Rng};
 use std::env;
 use std::sync::Once;
+use serde::{Deserialize, Serialize};
 
 static INIT: Once = Once::new();
 
@@ -22,4 +23,26 @@ pub fn random_string(len: u8) -> String {
         .take(len as usize)
         .map(char::from)
         .collect()
+}
+
+pub fn build_test_message() -> TestMessage {
+    TestMessage {
+        title: String::from("Hello test!"),
+    }
+}
+
+// test model
+/// Example message which is used for test purposes of messaging.
+///
+/// # Implements
+/// It implements PartialEq, so it may be used to compare in assertion
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct TestMessage {
+    pub title: String,
+}
+
+impl PartialEq for TestMessage {
+    fn eq(&self, other: &Self) -> bool {
+        self.title == other.title
+    }
 }

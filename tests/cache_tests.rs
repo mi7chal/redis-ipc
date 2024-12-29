@@ -1,6 +1,6 @@
 mod common;
 use redis_ipc::cache::Cache;
-use redis_ipc::Ttl;
+use redis_ipc::{Ttl, Timeout};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::num::NonZeroU32;
@@ -16,7 +16,7 @@ fn random_element_should_not_exist() {
 	let h12 = NonZeroU32::new(42_200_000);
 
 	// ttl 12h
-	let cache: Cache<String> = build_cache(name.clone(), h12);
+	let cache: Cache<String> = build_cache(name.clone(), h12.clone(), h12);
 
 	let field = common::random_string(5);
 
@@ -34,7 +34,7 @@ fn element_set_get() {
 	let h12 = NonZeroU32::new(42_200_000);
 
 	// ttl 12h
-	let cache: Cache<String> = build_cache(name.clone(), h12);
+	let cache: Cache<String> = build_cache(name.clone(), h12.clone(), h12);
 
 	let field = common::random_string(5);
 
@@ -55,7 +55,7 @@ fn element_set_exists() {
 	let h12 = NonZeroU32::new(42_200_000);
 
 	// ttl 12h
-	let cache: Cache<String> = build_cache(name.clone(), h12);
+	let cache: Cache<String> = build_cache(name.clone(), h12.clone(), h12);
 
 	let field = common::random_string(5);
 
@@ -76,7 +76,7 @@ fn element_b_get() {
 	let h12 = NonZeroU32::new(42_200_000);
 
 	// ttl 12h
-	let cache: Cache<String> = build_cache(name.clone(), h12);
+	let cache: Cache<String> = build_cache(name.clone(), h12.clone(), h12);
 
 	let field = common::random_string(5);
 
@@ -88,8 +88,7 @@ fn element_b_get() {
 
 	// todo get rid of this clone()
 	let handler = thread::spawn(move || {
-		let h12 = NonZeroU32::new(42_200_000);
-    	let res = cache_clone.b_get(&field_clone, h12).unwrap();
+    	let res = cache_clone.b_get(&field_clone).unwrap();
 
     	assert_eq!(res, value_clone);
 	});
@@ -102,8 +101,8 @@ fn element_b_get() {
 }
 
 // ** Helpers **
-fn build_cache<CacheElement: Serialize + DeserializeOwned>(name: String, ttl: Ttl) -> Cache<CacheElement> {
+fn build_cache<CacheElement: Serialize + DeserializeOwned>(name: String, ttl: Ttl, timeout: Timeout) -> Cache<CacheElement> {
 	let pool = common::build_pool();
 
-	Cache::new(pool, String::from(name), ttl)
+	Cache::new(pool, name, ttl, timeout)
 }

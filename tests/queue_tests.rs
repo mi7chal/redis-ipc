@@ -6,14 +6,16 @@ use std::num::NonZeroU32;
 
 mod common;
 
+use common::TestMessage;
+
 /// Checks only if publishing to write queue doesn't produce any errors
 /// DO NOT checks if queue message is actually published!
 #[test]
 fn publishes_to_write_queue() {
     let queue_name = common::random_string(10);
-    let mut queue = build_write_queue::<TestQueueMessageContent>(&queue_name);
+    let mut queue = build_write_queue::<common::TestMessage>(&queue_name);
 
-    let msg = TestQueueMessageContent {
+    let msg = common::TestMessage {
         title: String::from("Hello 1"),
     };
 
@@ -30,7 +32,7 @@ fn read_queue_timeouts() {
     let queue_name = common::random_string(10);
 
     // 1s timeout
-    let mut queue = build_read_queue::<TestQueueMessageContent>(&queue_name, NonZeroU32::new(1000));
+    let mut queue = build_read_queue::<TestMessage>(&queue_name, NonZeroU32::new(1000));
 
     let res = queue.b_next();
 
@@ -48,7 +50,7 @@ fn read_queue_error_on_empty() {
     let queue_name = common::random_string(10);
 
     // 1s timeout
-    let mut queue = build_read_queue::<TestQueueMessageContent>(&queue_name, NonZeroU32::new(1000));
+    let mut queue = build_read_queue::<TestMessage>(&queue_name, NonZeroU32::new(1000));
 
     let res = queue.next();
 
@@ -62,10 +64,10 @@ fn read_queue_error_on_empty() {
 fn write_and_read_queues_communicate() {
     let queue_name = common::random_string(10);
 
-    let mut write_queue = build_write_queue::<TestQueueMessageContent>(&queue_name);
-    let mut read_queue = build_read_queue::<TestQueueMessageContent>(&queue_name,  NonZeroU32::new(60000));
+    let mut write_queue = build_write_queue::<TestMessage>(&queue_name);
+    let mut read_queue = build_read_queue::<TestMessage>(&queue_name,  NonZeroU32::new(60000));
 
-    let msg = TestQueueMessageContent {
+    let msg = TestMessage {
         title: String::from("Queue test"),
     };
 
@@ -78,21 +80,6 @@ fn write_and_read_queues_communicate() {
 
 
 // *Test helpers*
-
-/// Example message which is used for test purposes of queue.
-///
-/// # Implements
-/// It implements PartialEq, so it may be used to compare in assertion
-#[derive(Deserialize, Serialize, Debug)]
-struct TestQueueMessageContent {
-    pub title: String,
-}
-
-impl PartialEq for TestQueueMessageContent {
-    fn eq(&self, other: &Self) -> bool {
-        self.title == other.title
-    }
-}
 
 fn build_write_queue<'a, MessageContent: Serialize>(name: &'a str) -> WriteQueue<'a, MessageContent> {
     let pool = common::build_pool();

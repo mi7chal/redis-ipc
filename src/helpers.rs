@@ -1,16 +1,16 @@
+use crate::RedisPool;
 use r2d2::Pool;
 use redis::Client;
 use std::error::Error;
-use crate::RedisPool;
 
-/// Creates [`RedisPool`](crate::RedisPool) using given url. 
-/// 
+/// Creates [`RedisPool`](crate::RedisPool) using given url.
+///
 /// # Errors
-/// 
+///
 /// Returns [`RedisError`](redis::RedisError) when cannot connect to redis server.
-/// 
+///
 /// Returns [`r2d2::Error`](r2d2::Error) when pool creation fails.
-/// 
+///
 /// # Examples
 /// ```
 /// # use redis_ipc::helpers::connect;
@@ -29,4 +29,3 @@ pub fn connect(redis_url: String) -> Result<RedisPool, Box<dyn Error>> {
     let pool = Pool::builder().build(client)?;
     Ok(pool)
 }
-    
