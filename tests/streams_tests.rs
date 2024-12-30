@@ -14,11 +14,9 @@ use std::time::Duration;
 #[test]
 fn publishes_message() {
     let name = common::random_string(10);
-    let mut stream = build_write_stream::<TestMessage>(name);
+    let mut stream = build_write_stream::<TestMessage>(&name);
 
-    let msg = TestMessage {
-        title: String::from("Hello 1"),
-    };
+    let msg = common::build_test_message();
 
     let _ = stream.publish(&msg);
 }
@@ -28,7 +26,7 @@ fn timeout_on_empty() {
     let name = common::random_string(10);
 
     // 1s timeout
-    let mut stream = build_read_stream::<TestMessage>(name, NonZeroU32::new(1000));
+    let mut stream = build_read_stream::<TestMessage>(&name, Duration::from_secs(1));
 
     let res = stream.b_next();
 
@@ -40,7 +38,7 @@ fn last_empty_error() {
     let name = common::random_string(10);
 
     // 1s timeout
-    let mut stream = build_read_stream::<TestMessage>(name, NonZeroU32::new(1000));
+    let mut stream = build_read_stream::<TestMessage>(&name, Duration::from_secs(1));
 
     let res = stream.last();
 
@@ -51,8 +49,8 @@ fn last_empty_error() {
 fn publishes_and_last_communicate() {
      let name = common::random_string(10);
 
-    let mut write_stream = build_write_stream::<TestMessage>(name.clone());
-    let mut read_stream = build_read_stream::<TestMessage>(name,  NonZeroU32::new(10000));
+    let mut write_stream = build_write_stream::<TestMessage>(&name);
+    let mut read_stream = build_read_stream::<TestMessage>(&name,  Duration::from_secs(15));
 
     let msg = common::build_test_message();
     let _ = write_stream.publish(&msg).expect("Cannot publish");
@@ -68,8 +66,8 @@ fn publishes_and_last_communicate() {
 fn publishes_and_b_next_communicate() {
     let name = common::random_string(10);
 
-    let write_stream = build_write_stream::<TestMessage>(name.clone());
-    let read_stream = build_read_stream::<TestMessage>(name,  NonZeroU32::new(15_000));
+    let write_stream = build_write_stream::<TestMessage>(&name);
+    let read_stream = build_read_stream::<TestMessage>(&name, Duration::from_secs(15));
 
     let msg = common::build_test_message();
     let msg_clone = msg.clone();
@@ -89,15 +87,15 @@ fn publishes_and_b_next_communicate() {
 
 
 // **helpers**s
-fn build_write_stream<'a, MessageContent: Serialize>(name: String) -> WriteStream<MessageContent> {
+fn build_write_stream<'a, MessageContent: Serialize>(name: &str) -> WriteStream<MessageContent> {
     let pool = common::build_pool();
     
     WriteStream::new(pool, name, 1024)
 }
 
-fn build_read_stream<'a, MessageContent: DeserializeOwned>(name: String, timeout: Timeout) -> ReadStream<MessageContent> {
+fn build_read_stream<'a, MessageContent: DeserializeOwned>(name: &str, timeout: Timeout) -> ReadStream<MessageContent> {
     let pool = common::build_pool();
 
     // timeout 60s
-    ReadStream::new(pool, name, timeout)
+    ReadStream::new(pool, name, Some(timeout))
 }

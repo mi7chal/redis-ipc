@@ -1,36 +1,30 @@
-use crate::{RedisPool, Timeout};
+use crate::error::{IpcError, IpcErrorKind};
+use crate::{OptionalTimeout, RedisPool, Timeout};
 use redis::streams::{StreamMaxlen, StreamRangeReply, StreamReadOptions, StreamReadReply};
 use redis::Commands;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::error::Error;
 use std::io;
 use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
-// needs:
-// universal - closure might not work here
-//
-//
-// pub/sub vs streams:
-//
-// pub/sub:
-// callback (closure) based, connection must be persisted
-//
-// stream:
-// messages are cached
-// contains map (not a string), which may be difficult to decode and encode
-// each reply has a deep, complicated structure
+use std::time;
 
-// read options:
-// - last
-// - b_next
-
+/// Actual message content in redis streams is send in only one field as a string, this is the name
+/// of this field.
 const CONTENT_FIELD: &str = "content";
 
+/// Lighter and more robust way of storing rust stream message id.
+///
+/// According to [official redis docs](https://redis.io/docs/latest/develop/data-types/streams/)
+/// id is stored in format: `<millisecondsTime>-<sequenceNumber>`, where `<millisecondsTime>`
+/// and `<sequenceNumber>` are unsigned 64-bit integers.
 pub type StreamId = (u64, u64);
 
+/// Stream message wrapper
 pub struct StreamMessage<MessageContent> {
+    /// Message id
     id: StreamId,
+    /// Custom message content
     content: MessageContent,
 }
 
@@ -48,21 +42,29 @@ impl<MessageContent> StreamMessage<MessageContent> {
     }
 }
 
+/// Structured projected in order to read messages from stream synchronously one by one.
+/// Messages are cached, connection is not blocked unless `b_next()` is called.
+#[derive(Clone)]
 pub struct ReadStream<MessageContent: DeserializeOwned> {
+    /// configured [`Pool`](r2d2::Pool) with redis [`Client`](redis::Client)
     pool: RedisPool,
+    /// Stream name, used in redis stream
     name: Arc<String>,
-    timeout: u32,
+    /// Timeout duration, 0 if no timeout
+    timeout: Timeout,
+    /// Id of the last read message
     last_id: Arc<Mutex<StreamId>>,
+    /// Phantom for message type
     phantom: PhantomData<MessageContent>,
 }
 
 impl<MessageContent: DeserializeOwned> ReadStream<MessageContent> {
-    pub fn new(pool: RedisPool, name: String, timeout: Timeout) -> Self {
+    pub fn new(pool: RedisPool, name: &str, timeout: OptionalTimeout) -> Self {
         let last_id = Arc::new(Mutex::new((0, 0)));
-        let timeout: u32 = timeout.map_or(0, |t| t.get());
+        let timeout = timeout.unwrap_or(time::Duration::ZERO);
 
         Self {
-            name: Arc::new(name),
+            name: Arc::new(name.to_string()),
             pool,
             last_id,
             timeout,
@@ -71,7 +73,7 @@ impl<MessageContent: DeserializeOwned> ReadStream<MessageContent> {
     }
 
     /// Returns current length of the stream
-    pub fn len(&self) -> Result<u32, Box<dyn Error>> {
+    pub fn len(&self) -> Result<u32, IpcError> {
         let mut conn = self.pool.get()?;
 
         let res = conn.xlen::<&str, u32>(&self.name)?;
@@ -79,7 +81,8 @@ impl<MessageContent: DeserializeOwned> ReadStream<MessageContent> {
         Ok(res)
     }
 
-    pub fn last(&self) -> Result<StreamMessage<MessageContent>, Box<dyn Error>> {
+    /// Returns last message in stream. For now returns error if there's no messages, but it will change in the future.
+    pub fn last(&self) -> Result<StreamMessage<MessageContent>, IpcError> {
         let mut conn = self.pool.get()?;
 
         let res = conn
@@ -90,22 +93,28 @@ impl<MessageContent: DeserializeOwned> ReadStream<MessageContent> {
         Ok(msg)
     }
 
-    pub fn b_next(&self) -> Result<StreamMessage<MessageContent>, Box<dyn Error + '_>> {
+    /// Reads next message in stream. Blocks thread if not available. Waits indefinitely
+    //// or returns error after [`ReadStream::timeout`](ReadStream::timeout) if it was set.
+    ///
+    /// Message is queried based on last id read or if not available first message added after this method call
+    /// will be returned.
+    pub fn b_next(&self) -> Result<StreamMessage<MessageContent>, IpcError> {
         let mut conn = self.pool.get()?;
 
         let id = {
             let last_id = self.last_id.lock()?;
 
             if *last_id == (0, 0) {
+                // "$" is redis symbol, for first message after xread()
                 String::from("$")
             } else {
                 stringify_id(&last_id)
             }
         };
 
-        let opts = StreamReadOptions::default()
-            .count(1)
-            .block(self.timeout as usize);
+        let timeout = usize::try_from(self.timeout.as_millis()).unwrap_or(usize::MAX);
+
+        let opts = StreamReadOptions::default().count(1).block(timeout);
 
         let res =
             conn.xread_options::<&str, &str, StreamReadReply>(&[&self.name], &[&id], &opts)?;
@@ -120,24 +129,34 @@ impl<MessageContent: DeserializeOwned> ReadStream<MessageContent> {
     }
 }
 
+/// Writes stream based on redis streams. It can publish single messages, which can be later read using [`ReadStream`](ReadStream).
+///
+///
+#[derive(Clone)]
 pub struct WriteStream<MessageContent: Serialize> {
+    /// configured [`Pool`](r2d2::Pool) with redis [`Client`](redis::Client)
     pool: RedisPool,
+    /// Stream name, used in redis stream
     name: Arc<String>,
+    /// Max size of stream. Stream will be trimmed to this size
     max_size: usize,
+    /// Phantom for message content type
     phantom: PhantomData<MessageContent>,
 }
 
 impl<MessageContent: Serialize> WriteStream<MessageContent> {
-    pub fn new(pool: RedisPool, name: String, max_size: u32) -> Self {
+    pub fn new(pool: RedisPool, name: &str, max_size: u32) -> Self {
         Self {
-            name: Arc::new(name),
+            name: Arc::new(name.to_string()),
             pool,
             max_size: max_size as usize,
             phantom: PhantomData,
         }
     }
 
-    pub fn publish(&self, message: &MessageContent) -> Result<StreamId, Box<dyn Error>> {
+    /// Publishes message on stream. Returns message id or error if publishing was unsuccessful
+    /// or result is unknown.
+    pub fn publish(&self, message: &MessageContent) -> Result<StreamId, IpcError> {
         let json = serde_json::to_string(message)?;
 
         let mut conn = self.pool.get()?;
@@ -155,12 +174,12 @@ impl<MessageContent: Serialize> WriteStream<MessageContent> {
     }
 }
 
-// Stringifies redis id tuple to format `<millisecondsTime>-<sequenceNumber>`.
+// Stringifies redis id tuple to format `<millisecondsTime>-<sequenceNumber>`. See [`StreamId`](StreamId).
 fn stringify_id(id: &StreamId) -> String {
     format!("{}-{}", id.0, id.1)
 }
 
-// Parses redis stream id from str to tuple
+// Parses redis stream id from str to tuple. See [`StreamId`](StreamId).
 fn parse_id(id_str: &str) -> Result<StreamId, io::Error> {
     let parts = id_str.split('-');
 
@@ -182,27 +201,28 @@ fn parse_id(id_str: &str) -> Result<StreamId, io::Error> {
 /// - Has only one stream entry (one id),
 /// - Only entry has a field named content, which can be parsed to `<MessageContent>` generic argument
 // Todo add tests
-fn parse_single_read_reply<MessageContent: DeserializeOwned>(rep: StreamReadReply) -> Result<StreamMessage<MessageContent>, io::Error> {
-    let stream_key = rep.keys.get(0).cloned().ok_or(io::Error::new(
-        io::ErrorKind::InvalidData,
+fn parse_single_read_reply<MessageContent: DeserializeOwned>(
+    rep: StreamReadReply,
+) -> Result<StreamMessage<MessageContent>, IpcError> {
+    let stream_key = rep.keys.get(0).cloned().ok_or(IpcError::new(
+        IpcErrorKind::InvalidData,
         "Redis message empty.",
     ))?;
 
-    let message = stream_key.ids.get(0).cloned().ok_or(io::Error::new(
-        io::ErrorKind::InvalidData,
+    let message = stream_key.ids.get(0).cloned().ok_or(IpcError::new(
+        IpcErrorKind::InvalidData,
         "Redis message has no ids.",
     ))?;
 
     let id = parse_id(&message.id)?;
 
-    let content: String = message.get(CONTENT_FIELD).ok_or(io::Error::new(
-        io::ErrorKind::InvalidData,
-        "Invalid message.",
-    ))?;
+    let content: String = message
+        .get(CONTENT_FIELD)
+        .ok_or(IpcError::new(IpcErrorKind::InvalidData, "Invalid message."))?;
 
     let content = serde_json::from_str::<MessageContent>(&content).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
+        IpcError::new(
+            IpcErrorKind::InvalidData,
             "Message content can't be parsed.",
         )
     })?;
@@ -214,22 +234,23 @@ fn parse_single_read_reply<MessageContent: DeserializeOwned>(rep: StreamReadRepl
 /// - Has only one stream entry (one id),
 /// - Only entry has a field named content, which can be parsed to `<MessageContent>` generic argument
 // Todo add tests
-fn parse_single_range_reply<MessageContent: DeserializeOwned>(rep: StreamRangeReply) -> Result<StreamMessage<MessageContent>, io::Error> {
-    let message = rep.ids.get(0).cloned().ok_or(io::Error::new(
-        io::ErrorKind::InvalidData,
+fn parse_single_range_reply<MessageContent: DeserializeOwned>(
+    rep: StreamRangeReply,
+) -> Result<StreamMessage<MessageContent>, IpcError> {
+    let message = rep.ids.get(0).cloned().ok_or(IpcError::new(
+        IpcErrorKind::InvalidData,
         "Redis message has no ids.",
     ))?;
 
     let id = parse_id(&message.id)?;
 
-    let content: String = message.get(CONTENT_FIELD).ok_or(io::Error::new(
-        io::ErrorKind::InvalidData,
-        "Invalid message.",
-    ))?;
+    let content: String = message
+        .get(CONTENT_FIELD)
+        .ok_or(IpcError::new(IpcErrorKind::InvalidData, "Invalid message."))?;
 
     let content = serde_json::from_str::<MessageContent>(&content).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
+        IpcError::new(
+            IpcErrorKind::InvalidData,
             "Message content can't be parsed.",
         )
     })?;
@@ -239,9 +260,9 @@ fn parse_single_range_reply<MessageContent: DeserializeOwned>(rep: StreamRangeRe
 
 #[cfg(test)]
 mod tests {
-	use super::*;
+    use super::*;
 
-	#[test]
+    #[test]
     fn stream_id_decoding() {
         let example = "123456-789102";
 

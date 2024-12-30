@@ -3,6 +3,7 @@ use redis_ipc::Timeout;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use std::num::NonZeroU32;
+use std::time::Duration;
 
 mod common;
 
@@ -15,9 +16,7 @@ fn publishes_to_write_queue() {
     let queue_name = common::random_string(10);
     let mut queue = build_write_queue::<common::TestMessage>(&queue_name);
 
-    let msg = common::TestMessage {
-        title: String::from("Hello 1"),
-    };
+    let msg = common::build_test_message();
 
     let _ = queue.publish(&msg);
 }
@@ -32,7 +31,7 @@ fn read_queue_timeouts() {
     let queue_name = common::random_string(10);
 
     // 1s timeout
-    let mut queue = build_read_queue::<TestMessage>(&queue_name, NonZeroU32::new(1000));
+    let mut queue = build_read_queue::<TestMessage>(&queue_name, Duration::from_secs(1));
 
     let res = queue.b_next();
 
@@ -50,7 +49,7 @@ fn read_queue_error_on_empty() {
     let queue_name = common::random_string(10);
 
     // 1s timeout
-    let mut queue = build_read_queue::<TestMessage>(&queue_name, NonZeroU32::new(1000));
+    let mut queue = build_read_queue::<TestMessage>(&queue_name, Duration::from_secs(1));
 
     let res = queue.next();
 
@@ -65,11 +64,9 @@ fn write_and_read_queues_communicate() {
     let queue_name = common::random_string(10);
 
     let mut write_queue = build_write_queue::<TestMessage>(&queue_name);
-    let mut read_queue = build_read_queue::<TestMessage>(&queue_name,  NonZeroU32::new(60000));
+    let mut read_queue = build_read_queue::<TestMessage>(&queue_name,  Duration::from_secs(60));
 
-    let msg = TestMessage {
-        title: String::from("Queue test"),
-    };
+    let msg = common::build_test_message();
 
     let _ = write_queue.publish(&msg).expect("Cannot publish");
 
@@ -81,15 +78,15 @@ fn write_and_read_queues_communicate() {
 
 // *Test helpers*
 
-fn build_write_queue<'a, MessageContent: Serialize>(name: &'a str) -> WriteQueue<'a, MessageContent> {
+fn build_write_queue<MessageContent: Serialize>(name: &str) -> WriteQueue<MessageContent> {
     let pool = common::build_pool();
     
-    WriteQueue::new(pool, &name)
+    WriteQueue::new(pool, name)
 }
 
-fn build_read_queue<'a, MessageContent: DeserializeOwned>(name: &'a str, timeout: Timeout) -> ReadQueue<'a, MessageContent> {
+fn build_read_queue<MessageContent: DeserializeOwned>(name: &str, timeout: Timeout) -> ReadQueue<MessageContent> {
     let pool = common::build_pool();
 
     // timeout 60s
-    ReadQueue::new(pool, &name, timeout)
+    ReadQueue::new(pool, name, Some(timeout))
 }

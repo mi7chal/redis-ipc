@@ -3,7 +3,7 @@ use r2d2::Pool;
 use redis::Client;
 use std::error::Error;
 
-/// Creates [`RedisPool`](crate::RedisPool) using given url.
+/// Creates [`RedisPool`](RedisPool) using given url.
 ///
 /// # Errors
 ///
