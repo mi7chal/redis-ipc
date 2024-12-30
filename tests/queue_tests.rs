@@ -1,45 +1,92 @@
-use redis_ipc::RedisPool;
 use redis_ipc::queue::{WriteQueue, ReadQueue};
-use std::env;
-use std::error::Error;
-use redis::{Client};
-use r2d2::{Pool};
+use redis_ipc::Timeout;
+use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use std::num::NonZeroU32;
+use std::time::Duration;
 
+mod common;
+
+use common::TestMessage;
+
+/// Checks only if publishing to write queue doesn't produce any errors
+/// DO NOT checks if queue message is actually published!
+#[test]
+fn publishes_to_write_queue() {
+    let queue_name = common::random_string(10);
+    let mut queue = build_write_queue::<common::TestMessage>(&queue_name);
+
+    let msg = common::build_test_message();
+
+    let _ = queue.publish(&msg);
+}
+
+/// Checks if `ReadQueue::b_next()` returns error when queue is empty and timeout happens.
+/// 
+/// Please be aware that this test should NOT ever panic. It may panic
+/// during queue initialization but that means failure. It should only
+/// end up with queue read error. 
+#[test]
+fn read_queue_timeouts() {
+    let queue_name = common::random_string(10);
+
+    // 1s timeout
+    let mut queue = build_read_queue::<TestMessage>(&queue_name, Duration::from_secs(1));
+
+    let res = queue.b_next();
+
+    assert!(res.is_err())
+}
+
+
+/// Checks if `ReadQueue::next()` returns error when queue is empty.
+/// 
+/// Please be aware that this test should NOT ever panic. It may panic
+/// during queue initialization but that means failure. It should only
+/// end up with queue read error. 
+#[test]
+fn read_queue_error_on_empty() {
+    let queue_name = common::random_string(10);
+
+    // 1s timeout
+    let mut queue = build_read_queue::<TestMessage>(&queue_name, Duration::from_secs(1));
+
+    let res = queue.next();
+
+    assert!(res.is_err())
+}
+
+/// Checks if read queue and write queue communicates with each other.
+/// 
+/// Also tests if send message is equal to the sent one.
 #[test]
 fn write_and_read_queues_communicate() {
-    let mut write_queue = build_write_queue();
-    let mut read_queue = build_read_queue();
+    let queue_name = common::random_string(10);
 
-    let message = String::from("Queue test");
+    let mut write_queue = build_write_queue::<TestMessage>(&queue_name);
+    let mut read_queue = build_read_queue::<TestMessage>(&queue_name,  Duration::from_secs(60));
 
-    write_queue.publish(message.clone()).expect("Cannot publish");
+    let msg = common::build_test_message();
+
+    let _ = write_queue.publish(&msg).expect("Cannot publish");
 
     let response = read_queue.b_next().expect("Response error");
 
-    println!("{:?}", message);
-
-    assert_eq!(response.get_content(), &message);
-}
-
-fn build_write_queue() -> WriteQueue<'static, String> {
-    dotenvy::dotenv();
-    let url = env::var("REDIS_URL").expect("Env REDIS_URL not found");
-    let pool = connect(url).expect("Redis pool cannot be built.");
-
-    WriteQueue::build(pool, "my_test_queue")
-}
-
-fn build_read_queue() -> ReadQueue<'static, String> {
-    dotenvy::dotenv();
-    let url = env::var("REDIS_URL").expect("Env REDIS_URL not found");
-    let pool = connect(url).expect("Redis pool cannot be built.");
-
-    ReadQueue::build(pool, "my_test_queue", None)
+    assert_eq!(response.get_content(), &msg);
 }
 
 
-fn connect(redis_url: String) -> Result<RedisPool, Box<dyn Error>> {
-    let client = Client::open(redis_url)?;
-    let pool = Pool::builder().build(client)?;
-    Ok(pool)
+// *Test helpers*
+
+fn build_write_queue<MessageContent: Serialize>(name: &str) -> WriteQueue<MessageContent> {
+    let pool = common::build_pool();
+    
+    WriteQueue::new(pool, name)
+}
+
+fn build_read_queue<MessageContent: DeserializeOwned>(name: &str, timeout: Timeout) -> ReadQueue<MessageContent> {
+    let pool = common::build_pool();
+
+    // timeout 60s
+    ReadQueue::new(pool, name, Some(timeout))
 }

@@ -19,3 +19,4 @@ uuid = { version = "1.11", features = ["v4"] }
 
 [dev-dependencies]
 dotenvy = "0.15"
+rand = "0.8"
