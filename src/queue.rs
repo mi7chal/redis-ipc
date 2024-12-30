@@ -1,10 +1,9 @@
-use std::num::{NonZeroU32, NonZeroUsize};
-use crate::{RedisPool, RedisConnection, Timeout};
+use std::num::{NonZeroUsize};
+use crate::{RedisPool, Timeout};
 use serde::{Serialize, Deserialize};
 use serde::de::DeserializeOwned;
 use std::error::Error;
-use r2d2::{Pool, Error as R2D2Error};
-use redis::{Client, Commands};
+use redis::{Commands};
 use std::io::{Error as IOError, ErrorKind as IOErrorKind};
 use uuid::Uuid;
 use std::marker::PhantomData;
