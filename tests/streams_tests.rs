@@ -5,7 +5,6 @@ use redis_ipc::{Timeout};
 use redis_ipc::stream::{WriteStream, ReadStream};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use std::num::NonZeroU32;
 use std::thread;
 use std::time::Duration;
 
@@ -14,7 +13,7 @@ use std::time::Duration;
 #[test]
 fn publishes_message() {
     let name = common::random_string(10);
-    let mut stream = build_write_stream::<TestMessage>(&name);
+    let stream = build_write_stream::<TestMessage>(&name);
 
     let msg = common::build_test_message();
 
@@ -26,7 +25,7 @@ fn timeout_on_empty() {
     let name = common::random_string(10);
 
     // 1s timeout
-    let mut stream = build_read_stream::<TestMessage>(&name, Duration::from_secs(1));
+    let stream = build_read_stream::<TestMessage>(&name, Duration::from_secs(1));
 
     let res = stream.b_next();
 
@@ -38,7 +37,7 @@ fn last_empty_error() {
     let name = common::random_string(10);
 
     // 1s timeout
-    let mut stream = build_read_stream::<TestMessage>(&name, Duration::from_secs(1));
+    let stream = build_read_stream::<TestMessage>(&name, Duration::from_secs(1));
 
     let res = stream.last();
 
@@ -49,8 +48,8 @@ fn last_empty_error() {
 fn publishes_and_last_communicate() {
      let name = common::random_string(10);
 
-    let mut write_stream = build_write_stream::<TestMessage>(&name);
-    let mut read_stream = build_read_stream::<TestMessage>(&name,  Duration::from_secs(15));
+    let write_stream = build_write_stream::<TestMessage>(&name);
+    let read_stream = build_read_stream::<TestMessage>(&name,  Duration::from_secs(15));
 
     let msg = common::build_test_message();
     let _ = write_stream.publish(&msg).expect("Cannot publish");

@@ -1,7 +1,14 @@
 [package]
 name = "redis_ipc"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/mi7chal/redis-ipc"
+homepage = "https://github.com/mi7chal/redis-ipc"
+readme = "README.md"
+description = "Simple crate for ipc (inter-process communication) and service-to-service communication based on redis."
+keywords = ["ipc", "service-to-service", "redis", "communication"]
+categories = ["api-bindings", "caching", "concurrency", "data-structures", "encoding"]
 
 [dependencies]
 redis = { version = "0.27", features = ["r2d2"] }

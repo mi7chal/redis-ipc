@@ -1,8 +1,7 @@
 use redis_ipc::queue::{WriteQueue, ReadQueue};
 use redis_ipc::Timeout;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize};
 use serde::de::DeserializeOwned;
-use std::num::NonZeroU32;
 use std::time::Duration;
 
 mod common;

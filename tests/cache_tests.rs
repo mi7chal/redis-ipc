@@ -1,9 +1,8 @@
 mod common;
 use redis_ipc::cache::Cache;
-use redis_ipc::{OptionalTtl, Ttl, Timeout};
+use redis_ipc::{Ttl, Timeout};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use std::num::NonZeroU32;
 use std::time::Duration;
 use std::thread;
 
