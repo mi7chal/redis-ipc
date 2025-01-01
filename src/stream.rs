@@ -1,6 +1,6 @@
 use crate::error::{IpcError, IpcErrorKind};
 use crate::{OptionalTimeout, RedisPool, Timeout};
-use redis::streams::{StreamMaxlen, StreamRangeReply, StreamReadOptions, StreamReadReply};
+use redis::streams::{StreamMaxlen, StreamRangeReply, StreamReadOptions, StreamReadReply, StreamId as RedisStreamMessage};
 use redis::Commands;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -72,7 +72,7 @@ impl<MessageContent: DeserializeOwned> ReadStream<MessageContent> {
         }
     }
 
-    /// Returns current length of the stream
+    /// Returns current length of the stream or error when it can't be read.
     pub fn len(&self) -> Result<u32, IpcError> {
         let mut conn = self.pool.get()?;
 
@@ -81,16 +81,29 @@ impl<MessageContent: DeserializeOwned> ReadStream<MessageContent> {
         Ok(res)
     }
 
-    /// Returns last message in stream. For now returns error if there's no messages, but it will change in the future.
-    pub fn last(&self) -> Result<StreamMessage<MessageContent>, IpcError> {
+    /// Returns last message in stream. If no message can be found [`None`](None) is returned.
+    ///
+    /// # Errors
+    /// Returns crate custom error on: connection failure or message decoding error. See
+    /// [`IpcError`](IpcError) for more details.
+    pub fn last(&self) -> Result<Option<StreamMessage<MessageContent>>, IpcError> {
         let mut conn = self.pool.get()?;
 
         let res = conn
             .xrevrange_count::<&str, &str, &str, u8, StreamRangeReply>(&self.name, "+", "-", 1)?;
 
-        let msg = parse_single_range_reply(res)?;
+        let res = res.ids.get(0);
 
-        Ok(msg)
+        // no last message available
+        if res.is_none() {
+            return Ok(None);
+        }
+
+        let res = res.unwrap();
+
+        let parsed = parse_redis_stream_single_message::<MessageContent>(res)?;
+
+        Ok(Some(parsed))
     }
 
     /// Reads next message in stream. Blocks thread if not available. Waits indefinitely
@@ -119,7 +132,7 @@ impl<MessageContent: DeserializeOwned> ReadStream<MessageContent> {
         let res =
             conn.xread_options::<&str, &str, StreamReadReply>(&[&self.name], &[&id], &opts)?;
 
-        let msg = parse_single_read_reply(res)?;
+        let msg = parse_fist_read_reply(&res)?;
 
         if let Ok(mut last_id) = self.last_id.lock() {
             *last_id = msg.get_id();
@@ -174,12 +187,13 @@ impl<MessageContent: Serialize> WriteStream<MessageContent> {
     }
 }
 
-// Stringifies redis id tuple to format `<millisecondsTime>-<sequenceNumber>`. See [`StreamId`](StreamId).
+/// Stringifies redis id tuple to format `<millisecondsTime>-<sequenceNumber>`. See [`StreamId`](StreamId).
 fn stringify_id(id: &StreamId) -> String {
     format!("{}-{}", id.0, id.1)
 }
 
-// Parses redis stream id from str to tuple. See [`StreamId`](StreamId).
+/// Parses redis stream id (stored in [`String`](String)) from `&str` to tuple.
+/// See [`StreamId`](StreamId) for more information about returned format.
 fn parse_id(id_str: &str) -> Result<StreamId, io::Error> {
     let parts = id_str.split('-');
 
@@ -196,13 +210,9 @@ fn parse_id(id_str: &str) -> Result<StreamId, io::Error> {
     ))
 }
 
-/// Helper function, Parses stream read reply, which meets requirements below:
-/// - Is from one stream (has one key),
-/// - Has only one stream entry (one id),
-/// - Only entry has a field named content, which can be parsed to `<MessageContent>` generic argument
-// Todo add tests
-fn parse_single_read_reply<MessageContent: DeserializeOwned>(
-    rep: StreamReadReply,
+/// Parses [`StreamReadReply`](StreamReadReply) first entry into message.
+fn parse_fist_read_reply<MessageContent: DeserializeOwned>(
+    rep: &StreamReadReply,
 ) -> Result<StreamMessage<MessageContent>, IpcError> {
     let stream_key = rep.keys.get(0).cloned().ok_or(IpcError::new(
         IpcErrorKind::InvalidData,
@@ -214,37 +224,23 @@ fn parse_single_read_reply<MessageContent: DeserializeOwned>(
         "Redis message has no ids.",
     ))?;
 
-    let id = parse_id(&message.id)?;
-
-    let content: String = message
-        .get(CONTENT_FIELD)
-        .ok_or(IpcError::new(IpcErrorKind::InvalidData, "Invalid message."))?;
-
-    let content = serde_json::from_str::<MessageContent>(&content).map_err(|_| {
-        IpcError::new(
-            IpcErrorKind::InvalidData,
-            "Message content can't be parsed.",
-        )
-    })?;
-
-    Ok(StreamMessage::new(id, content))
+    parse_redis_stream_single_message(&message)
 }
 
-/// Helper function, Parses stream range reply, which meets requirements below:
-/// - Has only one stream entry (one id),
-/// - Only entry has a field named content, which can be parsed to `<MessageContent>` generic argument
-// Todo add tests
-fn parse_single_range_reply<MessageContent: DeserializeOwned>(
-    rep: StreamRangeReply,
+/// Parses [`RedisStreamMessage` (originally named `StreamId`)](RedisStreamMessage) to crate custom
+/// [`StreamMessage`](StreamMessage)
+///
+/// # Errors
+///
+/// Returns [`IpcError`](IpcError) when message id is improper, message doesn't have `content` field
+/// or string in this field can't be parsed to `MessageContent`.
+fn parse_redis_stream_single_message<MessageContent: DeserializeOwned>(
+    redis_message: &RedisStreamMessage,
 ) -> Result<StreamMessage<MessageContent>, IpcError> {
-    let message = rep.ids.get(0).cloned().ok_or(IpcError::new(
-        IpcErrorKind::InvalidData,
-        "Redis message has no ids.",
-    ))?;
 
-    let id = parse_id(&message.id)?;
+    let id = parse_id(&redis_message.id)?;
 
-    let content: String = message
+    let content: String = redis_message
         .get(CONTENT_FIELD)
         .ok_or(IpcError::new(IpcErrorKind::InvalidData, "Invalid message."))?;
 

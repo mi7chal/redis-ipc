@@ -1,3 +1,5 @@
+//! This module covers everything related to error handling in this crate.
+
 use r2d2::Error as R2d2Error;
 use redis::RedisError;
 use serde_json::Error as SerdeJsonError;

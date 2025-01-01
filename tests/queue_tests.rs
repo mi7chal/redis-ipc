@@ -3,17 +3,18 @@ use redis_ipc::Timeout;
 use serde::{Serialize};
 use serde::de::DeserializeOwned;
 use std::time::Duration;
+use std::thread;
 
 mod common;
 
 use common::TestMessage;
 
 /// Checks only if publishing to write queue doesn't produce any errors
-/// DO NOT checks if queue message is actually published!
+/// DO NOT check if queue message is actually published!
 #[test]
 fn publishes_to_write_queue() {
     let queue_name = common::random_string(10);
-    let mut queue = build_write_queue::<common::TestMessage>(&queue_name);
+    let mut queue = build_write_queue::<TestMessage>(&queue_name);
 
     let msg = common::build_test_message();
 
@@ -50,9 +51,9 @@ fn read_queue_error_on_empty() {
     // 1s timeout
     let mut queue = build_read_queue::<TestMessage>(&queue_name, Duration::from_secs(1));
 
-    let res = queue.next();
+    let res = queue.next().expect("Read error");
 
-    assert!(res.is_err())
+    assert!(res.is_none())
 }
 
 /// Checks if read queue and write queue communicates with each other.
@@ -70,6 +71,25 @@ fn write_and_read_queues_communicate() {
     let _ = write_queue.publish(&msg).expect("Cannot publish");
 
     let response = read_queue.b_next().expect("Response error");
+
+    assert_eq!(response.get_content(), &msg);
+}
+
+/// Checks if read queue and write queue communicates with each other in non-blocking communication.
+#[test]
+fn write_and_read_queues_communicate_non_blocking() {
+    let queue_name = common::random_string(10);
+
+    let mut write_queue = build_write_queue::<TestMessage>(&queue_name);
+    let mut read_queue = build_read_queue::<TestMessage>(&queue_name,  Duration::from_secs(60));
+
+    let msg = common::build_test_message();
+
+    let _ = write_queue.publish(&msg).expect("Cannot publish");
+    
+    thread::sleep(Duration::from_secs(1));
+    
+    let response = read_queue.next().expect("Response error").expect("Queue element not found");
 
     assert_eq!(response.get_content(), &msg);
 }

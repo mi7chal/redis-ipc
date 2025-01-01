@@ -88,15 +88,13 @@ impl<MessageContent: Serialize> WriteQueue<MessageContent> {
         }
     }
 
-    /// Publishes task to the queue. Uses queue name, which may be accessed using `WriteQueue::get_name(&self)`
+    /// Publishes task to the queue. Uses queue name, which may be accessed using 
+    /// `WriteQueue::get_name(&self)`
     ///
     /// # Errors
     ///
-    /// Returns [`r2d2::Error`](r2d2::Error) when getting connection fails. See [`Pool::get()`](r2d2::Pool::get)
-    ///
-    /// Returns [`RedisError`](redis::RedisError) when pushing to queue fails.
-    ///
-    /// Returns [`serde_json::Error`](serde_json::Error) when stringify json fails. See [`serde_json::to_string()`](serde_json::to_string)
+    /// Returns [`IpcError`](IpcError) on connection or decoding failure. See error docs for 
+    /// more info.
     pub fn publish(&mut self, message_content: &MessageContent) -> Result<(), IpcError> {
         let message = WriteQueueMessage::new(Uuid::new_v4().to_string(), message_content);
 
@@ -150,21 +148,31 @@ impl<MessageContent: DeserializeOwned> ReadQueue<MessageContent> {
         }
     }
 
-    /// Returns the next message in queue or error if it wasn't found
+    /// Returns the next message in queue or [`None`](None) if it was not found.
     ///
     /// # Errors
-    /// Returns [`r2d2::Error`](r2d2::Error) when getting connection fails. See [`Pool::get()`](r2d2::Pool::get)
-    ///
-    /// Returns [`RedisError`](redis::RedisError) when reading fails or there is no object available.
-    ///
-    /// Returns [`serde_json::Error`](serde_json::Error) produced by [`serde_json::from_str()](serde_json::from_str)
-    /// when json parsing fails
-    pub fn next(&mut self) -> Result<ReadQueueMessage<MessageContent>, IpcError> {
+    /// Returns [`IpcError`](IpcError) when connection fails or decoding message fails. See error kind
+    /// and source for more info.
+    pub fn next(&mut self) -> Result<Option<ReadQueueMessage<MessageContent>>, IpcError> {
         let mut conn = self.pool.get()?;
 
-        let msg = conn.rpop::<&str, String>(&self.name, NonZeroUsize::new(1))?;
+        let res = conn.rpop::<&str, Option<Vec<String>>>(&self.name, NonZeroUsize::new(1))?;
 
-        Ok(ReadQueueMessage::from_str(msg)?)
+        Ok(
+            if let Some(res) = res {
+                // redis successful result contains array with strings, we requested only one message,
+                // so it should be an array of size 1
+                let msg = res.get(0).cloned().ok_or(IpcError::new(
+                    IpcErrorKind::InvalidData,
+                    "Invalid redis message.",
+                ))?;
+
+                Some(ReadQueueMessage::from_str(msg)?)
+            } else {
+                // None response indicates no message, but successfult response
+                None
+            }
+        )
     }
 
     /// Blocking read next message from queue. If no message is available blocks thread and waits for timeout or indefinitely.
@@ -172,14 +180,7 @@ impl<MessageContent: DeserializeOwned> ReadQueue<MessageContent> {
     ///
     /// # Errors
     ///
-    /// Returns [`r2d2::Error`](r2d2::Error) when getting connection fails. See [`Pool::get()`](r2d2::Pool::get)
-    ///
-    /// Returns [`RedisError`](redis::RedisError) when reading fails or timeout exceeds
-    ///
-    /// Returns [`Error`](std::io::Error) when redis returns invalid data. It is not possible (theoretically).
-    ///
-    /// Returns [`serde_json::Error`](serde_json::Error) produced by [`serde_json::from_str()](serde_json::from_str)
-    /// when json parsing fails
+    /// Returns [`IpcError`](IpcError) on connection or parsing failure.
     pub fn b_next(&mut self) -> Result<ReadQueueMessage<MessageContent>, IpcError> {
         let mut conn = self.pool.get()?;
 
@@ -195,10 +196,25 @@ impl<MessageContent: DeserializeOwned> ReadQueue<MessageContent> {
     }
 }
 
+
+/// Implements blocking read of queue, which works until first successful result.
+/// Please do not use another [`Iterator`](Iterator) methods, they will just block execution 
+/// indefinitely.
+/// 
+/// This implementation is added mostly in order to add more readable usage of queue.
+/// 
+/// # Examples
+/// 
+/// It can be used in for loop.
+/// ```ignored
+/// for task in queue {
+///     handle(task);
+/// }
+/// ```
 impl<MessageContent: DeserializeOwned> Iterator for ReadQueue<MessageContent> {
     type Item = ReadQueueMessage<MessageContent>;
 
-    /// Returns first message which can be read.
+    ///  **This is a blocking method!**. Returns first message which can be read.
     ///
     /// # Warning
     /// This method loops infinitely and will never return None.
