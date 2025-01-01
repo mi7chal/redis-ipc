@@ -33,15 +33,15 @@ fn timeout_on_empty() {
 }
 
 #[test]
-fn last_empty_error() {
+fn last_empty_none() {
     let name = common::random_string(10);
 
     // 1s timeout
     let stream = build_read_stream::<TestMessage>(&name, Duration::from_secs(1));
 
-    let res = stream.last();
+    let res = stream.last().expect("Stream last message can't be read.");
 
-    assert!(res.is_err())
+    assert!(res.is_none())
 }
 
 #[test]
@@ -56,7 +56,9 @@ fn publishes_and_last_communicate() {
 
     thread::sleep(Duration::from_secs(5));
 
-    let response = read_stream.last().expect("Response error");
+    let response = read_stream.last()
+        .expect("Response error")
+        .expect("No messages on stream");
 
     assert_eq!(response.get_content(), &msg);
 }

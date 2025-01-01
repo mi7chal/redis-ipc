@@ -11,7 +11,7 @@ use std::thread;
 fn random_element_should_not_exist() {
 	let name = common::random_string(10);
 
-	let ttl = Duration::from_secs(15000);
+	let ttl = Duration::from_secs(15);
 	let timeout = ttl.clone();
 
 	let cache: Cache<String> = build_cache(&name, ttl, timeout);
@@ -28,7 +28,7 @@ fn random_element_should_not_exist() {
 fn element_set_get() {
 	let name = common::random_string(10);
 
-	let ttl = Duration::from_secs(15000);
+	let ttl = Duration::from_secs(15);
 	let timeout = ttl.clone();
 
 	let cache: Cache<String> = build_cache(&name, ttl, timeout);
@@ -39,16 +39,33 @@ fn element_set_get() {
 
 	let _ = cache.set(&field, &value);
 
-	let field_val = cache.get(&field).expect("Cannot get cache value");
+	let field_val = cache.get(&field).unwrap().unwrap();
 
 	assert_eq!(&value, field_val.get_content());
+}
+
+#[test]
+fn non_existing_get() {
+	let name = common::random_string(10);
+
+	let ttl = Duration::from_secs(15);
+	let timeout = ttl.clone();
+
+	let cache: Cache<String> = build_cache(&name, ttl, timeout);
+
+	let field = common::random_string(5);
+	
+
+	let element = cache.get(&field).expect("Cache element get error");
+
+	assert!(element.is_none());
 }
 
 #[test]
 fn element_set_exists() {
 	let name = common::random_string(10);
 
-	let ttl = Duration::from_secs(15000);
+	let ttl = Duration::from_secs(15);
 	let timeout = ttl.clone();
 
 	let cache: Cache<String> = build_cache(&name, ttl, timeout);
@@ -68,7 +85,7 @@ fn element_set_exists() {
 fn element_b_get() {
 	let name = common::random_string(10);
 
-	let ttl = Duration::from_secs(15000);
+	let ttl = Duration::from_secs(15);
 	let timeout = ttl.clone();
 
 	let cache: Cache<String> = build_cache(&name, ttl, timeout);

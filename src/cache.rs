@@ -1,5 +1,5 @@
 use crate::error::{IpcError, IpcErrorKind};
-use crate::{OptionalTimeout, OptionalTtl, RedisPool, Timeout};
+use crate::{ OptionalTimeout, OptionalTtl, RedisPool, Timeout};
 use redis::{Commands, ExpireOption};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time;
 
+/// Wrapper struct for elements in cache. 
 #[derive(Serialize, Deserialize)]
 pub struct CacheElement<ElementContent> {
     timestamp: u128,
@@ -15,6 +16,7 @@ pub struct CacheElement<ElementContent> {
 }
 
 impl<ElementContent> CacheElement<ElementContent> {
+    /// Creates a new `CacheElement`. `timestamp` param should be unix timestamp.
     pub fn new(timestamp: u128, content: ElementContent) -> Self {
         Self { timestamp, content }
     }
@@ -48,7 +50,7 @@ impl<ElementContent: Serialize + DeserializeOwned> Cache<ElementContent> {
     ///
     /// # Arguments
     ///
-    /// * pool - configured [`Pool`](r2d2::Pool) with [`Client`](redis::Client)
+    /// * pool - configured [`RedisPool`](RedisPool)
     /// * name - cache name, will be used as redis hash name
     /// * ttl - time to live for every new cache element (in ms)
     /// * read_timeout - timeout for reading operations (in ms)
@@ -71,14 +73,19 @@ impl<ElementContent: Serialize + DeserializeOwned> Cache<ElementContent> {
     }
 
     /// Returns a cache element or error if not exists
-    pub fn get(&self, field: &str) -> Result<CacheElement<ElementContent>, IpcError> {
+    pub fn get(&self, field: &str) -> Result<Option<CacheElement<ElementContent>>, IpcError> {
         let mut conn = self.pool.get()?;
 
-        let element = conn.hget::<&str, &str, String>(&self.name, field)?;
-
-        Ok(serde_json::from_str::<CacheElement<ElementContent>>(
-            &element,
-        )?)
+        let element = conn.hget::<&str, &str, Option<String>>(&self.name, field)?;
+        
+        Ok(
+            if let Some(element) = element {
+                let parsed = serde_json::from_str::<CacheElement<ElementContent>>(&element)?;
+                Some(parsed)
+            } else {
+                None
+            }
+        )
     }
 
     /// Returns (blocking) a cache element with given name, or error if timeouts.
@@ -89,7 +96,7 @@ impl<ElementContent: Serialize + DeserializeOwned> Cache<ElementContent> {
         loop {
             let elem = self.get(field);
 
-            if let Ok(elem) = elem {
+            if let Ok(Some(elem)) = elem {
                 return Ok(elem);
             }
 
@@ -133,6 +140,7 @@ impl<ElementContent: Serialize + DeserializeOwned> Cache<ElementContent> {
     }
 }
 
+/// Returns current 128 bit unix timestamp
 fn timestamp_u128_now() -> Result<u128, time::SystemTimeError> {
     Ok(time::SystemTime::now()
         .duration_since(time::UNIX_EPOCH)?

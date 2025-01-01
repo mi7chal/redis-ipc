@@ -1,4 +1,6 @@
-use crate::RedisPool;
+//! Module provides some helper functions, which may be useful when building ipc.
+
+use crate::{RedisPool};
 use r2d2::Pool;
 use redis::Client;
 use std::error::Error;
@@ -29,3 +31,4 @@ pub fn connect(redis_url: String) -> Result<RedisPool, Box<dyn Error>> {
     let pool = Pool::builder().build(client)?;
     Ok(pool)
 }
+

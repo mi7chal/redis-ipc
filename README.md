@@ -39,6 +39,3 @@ It allows for synchronous exchanging events between processes or services. New e
 method and existing ones can be accessed with a non-blocking one.
 
 Event streaming is based on redis streams, which are used for events caching. Maximum size of stream can be specified.
-
-# Todo
-- [ ] Differentiating empty results from error results,
