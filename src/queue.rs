@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use uuid::Uuid;
 
-/// Wrapper struct for messages in [`WriteQueue`](WriteQueue).
+/// Wrapper struct for messages in [`WriteQueue`].
 #[derive(Serialize)]
 pub struct WriteQueueMessage<MessageContent: Serialize> {
     /// Message id
@@ -33,7 +33,7 @@ impl<MessageContent: Serialize> WriteQueueMessage<MessageContent> {
     }
 }
 
-/// Wrapper for messages in [`ReadQueue`](ReadQueue).
+/// Wrapper for messages in [`ReadQueue`].
 #[derive(Deserialize)]
 pub struct ReadQueueMessage<MessageContent> {
     uuid: String,
@@ -62,7 +62,7 @@ impl<MessageContent: DeserializeOwned> ReadQueueMessage<MessageContent> {
 
 /// Queue dedicated for writing tasks only.
 ///
-/// For reading use ReadQueue
+/// For reading use [`ReadQueue`]
 #[derive(Clone)]
 pub struct WriteQueue<MessageContent: Serialize> {
     /// configured [`Pool`](r2d2::Pool) with redis [`Client`](redis::Client)
@@ -74,7 +74,7 @@ pub struct WriteQueue<MessageContent: Serialize> {
 }
 
 impl<MessageContent: Serialize> WriteQueue<MessageContent> {
-    /// Builds [`ReadQueue`](ReadQueue) with given name
+    /// Builds [`ReadQueue`] with given name
     ///
     /// # Arguments
     ///
@@ -115,7 +115,7 @@ impl<MessageContent: Serialize> WriteQueue<MessageContent> {
 
 /// Read only task queue. It is based on redis list.
 ///
-/// For writing use `WriteQueue`
+/// For writing use [`WriteQueue`]
 #[derive(Clone)]
 pub struct ReadQueue<MessageContent: DeserializeOwned> {
     /// configured [`Pool`](r2d2::Pool) with redis [`Client`](redis::Client)
@@ -133,9 +133,9 @@ impl<MessageContent: DeserializeOwned> ReadQueue<MessageContent> {
     ///
     /// # Arguments
     ///
-    /// * pool - configured r2d2 pool with redis connection
+    /// * pool - configured [`r2d2::Pool`]  with redis connection
     /// * name - queue name, will be used as redis list name
-    /// * timeout - blocking requests timeout in milliseconds or None for infinite timeout
+    /// * timeout - blocking requests timeout in milliseconds or [`None`] for infinite timeout
     pub fn new(pool: RedisPool, name: &str, timeout: OptionalTimeout) -> Self {
         // maps None as 0, because redis uses 0 as infinite timeout
         let timeout = timeout.unwrap_or(Duration::ZERO);
@@ -148,7 +148,7 @@ impl<MessageContent: DeserializeOwned> ReadQueue<MessageContent> {
         }
     }
 
-    /// Returns the next message in queue or [`None`](None) if it was not found.
+    /// Returns the next message in queue or [`None`] if it was not found.
     ///
     /// # Errors
     /// Returns [`IpcError`](IpcError) when connection fails or decoding message fails. See error kind
@@ -198,7 +198,7 @@ impl<MessageContent: DeserializeOwned> ReadQueue<MessageContent> {
 
 
 /// Implements blocking read of queue, which works until first successful result.
-/// Please do not use another [`Iterator`](Iterator) methods, they will just block execution 
+/// Please do not use another [`Iterator`] methods, they will just block execution 
 /// indefinitely.
 /// 
 /// This implementation is added mostly in order to add more readable usage of queue.
@@ -217,7 +217,7 @@ impl<MessageContent: DeserializeOwned> Iterator for ReadQueue<MessageContent> {
     ///  **This is a blocking method!**. Returns first message which can be read.
     ///
     /// # Warning
-    /// This method loops infinitely and will never return None.
+    /// This method loops infinitely and will **never return [`None`]**.
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let res = self.b_next();

@@ -21,10 +21,12 @@ impl<ElementContent> CacheElement<ElementContent> {
         Self { timestamp, content }
     }
 
+    /// Getter for timestamp field
     pub fn get_timestamp_128(&self) -> u128 {
         self.timestamp
     }
 
+    /// Getter for content field
     pub fn get_content(&self) -> &ElementContent {
         &self.content
     }
@@ -137,6 +139,15 @@ impl<ElementContent: Serialize + DeserializeOwned> Cache<ElementContent> {
         let result = conn.hexists::<&str, &str, u8>(&self.name, field)?;
 
         Ok(result != 0)
+    }
+
+    /// Deletes cache field by given key. Returns error on failure.
+    pub fn delete(&self, field: &str) -> Result<(), IpcError> {
+        let mut conn = self.pool.get()?;
+
+        conn.hdel::<&str, &str, ()>(&self.name, field)?;
+
+        Ok(())
     }
 }
 

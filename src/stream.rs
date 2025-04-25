@@ -20,7 +20,7 @@ const CONTENT_FIELD: &str = "content";
 /// and `<sequenceNumber>` are unsigned 64-bit integers.
 pub type StreamId = (u64, u64);
 
-/// Stream message wrapper
+/// Stream message wrapper object (dto)
 pub struct StreamMessage<MessageContent> {
     /// Message id
     id: StreamId,
@@ -187,7 +187,7 @@ impl<MessageContent: Serialize> WriteStream<MessageContent> {
     }
 }
 
-/// Stringifies redis id tuple to format `<millisecondsTime>-<sequenceNumber>`. See [`StreamId`](StreamId).
+/// Stringifies redis id tuple to format `<millisecondsTime>-<sequenceNumber>`. See [`StreamId`].
 fn stringify_id(id: &StreamId) -> String {
     format!("{}-{}", id.0, id.1)
 }

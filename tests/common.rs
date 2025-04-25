@@ -1,5 +1,5 @@
 use redis_ipc::{RedisPool, helpers};
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distr::Alphanumeric, Rng};
 use std::env;
 use std::sync::Once;
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,7 @@ pub fn build_pool() -> RedisPool {
 }
 
 pub fn random_string(len: u8) -> String {
-    rand::thread_rng()
+    rand::rng()
         .sample_iter(&Alphanumeric)
         .take(len as usize)
         .map(char::from)

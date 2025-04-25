@@ -5,7 +5,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::time::Duration;
 use std::thread;
-
+use crate::common::TestMessage;
 
 #[test]
 fn random_element_should_not_exist() {
@@ -31,11 +31,11 @@ fn element_set_get() {
 	let ttl = Duration::from_secs(15);
 	let timeout = ttl.clone();
 
-	let cache: Cache<String> = build_cache(&name, ttl, timeout);
+	let cache: Cache<TestMessage> = build_cache(&name, ttl, timeout);
 
 	let field = common::random_string(5);
 
-	let value = common::random_string(5);
+	let value = common::build_test_message();
 
 	let _ = cache.set(&field, &value);
 
@@ -55,7 +55,6 @@ fn non_existing_get() {
 
 	let field = common::random_string(5);
 	
-
 	let element = cache.get(&field).expect("Cache element get error");
 
 	assert!(element.is_none());
@@ -68,11 +67,11 @@ fn element_set_exists() {
 	let ttl = Duration::from_secs(15);
 	let timeout = ttl.clone();
 
-	let cache: Cache<String> = build_cache(&name, ttl, timeout);
+	let cache: Cache<TestMessage> = build_cache(&name, ttl, timeout);
 
 	let field = common::random_string(5);
 
-	let value = common::random_string(5);
+	let value = common::build_test_message();
 
 	let _ = cache.set(&field, &value);
 
@@ -88,11 +87,11 @@ fn element_b_get() {
 	let ttl = Duration::from_secs(15);
 	let timeout = ttl.clone();
 
-	let cache: Cache<String> = build_cache(&name, ttl, timeout);
+	let cache: Cache<TestMessage> = build_cache(&name, ttl, timeout);
 
 	let field = common::random_string(5);
 
-	let value = common::random_string(5);
+	let value = common::build_test_message();
 
 	let cache_clone = cache.clone();
 	let field_clone = field.clone();
@@ -111,6 +110,32 @@ fn element_b_get() {
 
 	handler.join().unwrap();
 }
+
+#[test]
+fn element_delete() {
+	let name = common::random_string(10);
+
+	let ttl = Duration::from_secs(15);
+	let timeout = ttl.clone();
+
+	let cache: Cache<TestMessage> = build_cache(&name, ttl, timeout);
+
+	let field = common::random_string(5);
+	let value = common::build_test_message();
+
+	let mut exists: bool;
+	exists = cache.exists(&field).expect("Cannot check value existence");
+	assert!(!exists, "Field ${field} should not exist");
+	
+	let _ = cache.set(&field, &value);
+	exists = cache.exists(&field).expect("Cannot check value existence");
+	assert!(exists, "Field ${field} should exist");
+
+	let _ = cache.delete(&field);
+	exists = cache.exists(&field).expect("Cannot check value existence");
+	assert!(!exists, "Field ${field} should not exist");
+}
+
 
 // ** Helpers **
 fn build_cache<CacheElement: Serialize + DeserializeOwned>(name: &str, ttl: Ttl, timeout: Timeout) -> Cache<CacheElement> {
